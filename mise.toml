@@ -1,0 +1,51 @@
+[settings]
+task.run_auto_install = false
+
+[tasks.setup]
+description = "Install tools and link dotfiles"
+dir = "{{config_root}}"
+run = '''
+#!/bin/bash
+set -euo pipefail
+
+if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
+  printf 'This setup requires an Apple Silicon Mac.\n' >&2
+  exit 1
+fi
+
+files=()
+while IFS= read -r -d '' source; do
+  target="$HOME/${source#"$PWD/home/"}"
+  if [[ ( -e "$target" || -L "$target" ) && ! ( -L "$target" && "$target" -ef "$source" ) ]]; then
+    printf '%s exists. Move it aside, then run mise run setup again.\n' "$target" >&2
+    exit 1
+  fi
+  files+=("$source")
+done < <(find "$PWD/home" -type f -print0)
+
+brew bundle --file="$PWD/Brewfile" --no-upgrade
+
+if [[ ! -f "$HOME/.oh-my-zsh/oh-my-zsh.sh" ]]; then
+  git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
+fi
+
+for source in "${files[@]}"; do
+  target="$HOME/${source#"$PWD/home/"}"
+  if [[ -L "$target" && "$target" -ef "$source" ]]; then
+    continue
+  fi
+  if [[ -e "$target" || -L "$target" ]]; then
+    printf '%s exists. Move it aside, then run mise run setup again.\n' "$target" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname -- "$target")"
+  ln -s "$source" "$target"
+done
+
+mise install
+
+defaults write NSGlobalDomain AppleShowAllExtensions -bool true
+defaults write com.apple.finder FXPreferredViewStyle -string clmv
+
+printf 'Done. Open a new terminal.\n'
+'''
